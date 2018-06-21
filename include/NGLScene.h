@@ -9,6 +9,7 @@
 #include <QEvent>
 #include <QResizeEvent>
 #include <QOpenGLWidget>
+#include <QString>
 #include <memory>
 
 
@@ -43,14 +44,20 @@ public :
 
   void loadImage();
   void changeFace(int _index);
-
+  void changeTextureSize(int _size);
+  void saveImages();
+  void storeFileName(const QString &_s){m_saveFileName=_s;}
 private :
 	/// @brief m_wireframe mode
 	bool m_wireframe;
+  bool m_saveFile=false;
+  QString m_saveFileName;
+  QString m_saveFilePath;
   GLuint m_sourceEnvMapID;
   std::array<GLuint,6> m_cubeFaceTextureID;
   GLuint m_envCubemap;
   bool m_showQuad=false;
+  GLuint m_textureSize=512;
 protected:
   //----------------------------------------------------------------------------------------------------------------------
   /// @brief the windows params such as mouse and rotations etc
@@ -62,7 +69,7 @@ protected:
   void createFBO();
   void createCubeMap();
   void captureCubeToTexture();
-
+  void saveImagesToFile();
   /// @brief this is called whenever the window is re-sized
   /// @param[in] _w the width of the resized window
   /// @param[in] _h the height of the resized window

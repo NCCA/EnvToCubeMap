@@ -4,6 +4,7 @@
 #include <ngl/NGLInit.h>
 #include <ngl/VAOPrimitives.h>
 #include <ngl/ShaderLib.h>
+#include <ngl/Image.h>
 #include <QByteArray>
 #include <QColorDialog>
 #include <QFileDialog>
@@ -30,7 +31,7 @@ void NGLScene::loadImage()
 {
   std::cout<<"load\n";
   QString filename = QFileDialog::getOpenFileName(
-            0,
+            nullptr,
             tr("load texture"),
             QDir::currentPath(),
             tr("*.*") );
@@ -54,11 +55,11 @@ void NGLScene::loadImage()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glGenerateMipmap(GL_TEXTURE_2D);
 
-    size_t size=width*height*nrComponents;
+    auto size=width*height*nrComponents;
     QByteArray imagedata(size,0);
     for (int i = 0; i<size; ++i)
     {
-      imagedata[i] = std::max(0.0, std::min((data[i] * 255.0), 255.0)); //std::clamp((data[i] * 255),0,255);
+      imagedata[i] = std::max(0.0f, std::min((data[i] * 255.0f), 255.0f)); //std::clamp((data[i] * 255),0,255);
     }
     QImage image((const unsigned char*)imagedata.constData(), width, height, QImage::Format_RGB888);
     QTransform myTransform;
@@ -125,6 +126,8 @@ void NGLScene::loadMatricesToShader()
 // this is our main drawing routine
 void NGLScene::paintGL()
 {
+  auto *shader=ngl::ShaderLib::instance();
+
   // Rotation based on the mouse position for our global transform
   ngl::Mat4 rotX;
   ngl::Mat4 rotY;
@@ -134,38 +137,98 @@ void NGLScene::paintGL()
   // multiply the rotations
   m_mouseGlobalTX = rotX * rotY;
   // add the translations
-  m_mouseGlobalTX.m_m[ 3 ][ 0 ] = m_modelPos.m_x;
-  m_mouseGlobalTX.m_m[ 3 ][ 1 ] = m_modelPos.m_y;
-  m_mouseGlobalTX.m_m[ 3 ][ 2 ] = m_modelPos.m_z;
+  m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
+  m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
+  m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
   captureCubeToTexture();
-
-
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glViewport(0,0,m_win.width,m_win.height);
   ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
-  if(m_wireframe == true)
-  {
-    glPolygonMode(GL_FRONT_AND_BACK,GL_LINE);
-  }
-  else
-  {
-    glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-  }
+
 	loadMatricesToShader();
   glBindTexture(GL_TEXTURE_2D, m_sourceEnvMapID);
   prim->draw("cube");
 
   if(m_showQuad)
   {
+    glViewport(0,0,m_win.width,m_win.height);
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
-    auto *shader=ngl::ShaderLib::instance();
     shader->use("ScreenQuad");
-    shader->setUniform("tex",0);
-    glGenerateMipmap(GL_TEXTURE_2D);
-    m_screenQuad->draw();
   }
+
+  if(m_saveFile)
+  {
+    saveImagesToFile();
+    m_saveFile=false;
+  }
+
 }
+
+
+void NGLScene::saveImagesToFile()
+{
+   GLuint fboID,rboID;
+   glGenFramebuffers(1, &fboID);
+   glBindFramebuffer(GL_FRAMEBUFFER, fboID);
+   // create a renderbuffer object to store depth info
+   glGenRenderbuffers(1, &rboID);
+   glBindRenderbuffer(GL_RENDERBUFFER, rboID);
+
+   glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, m_textureSize, m_textureSize);
+   // bind
+   glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+   // attatch the texture we created earlier to the FBO
+   GLuint textureID;
+   glGenTextures(1, &textureID);
+   // bind it to make it active
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, textureID);
+   // set params
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+   //glGenerateMipmapEXT(GL_TEXTURE_2D);  // set the data size but just set the buffer to 0 as we will fill it with the FBO
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_textureSize, m_textureSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+   glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID, 0);
+
+   // now attach a renderbuffer to depth attachment point
+   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboID);
+   // now got back to the default render context
+   // were finished as we have an attached RB so delete it
+   glDeleteRenderbuffers(1,&rboID);
+   auto *shader=ngl::ShaderLib::instance();
+
+   shader->use("ScreenQuad");
+   shader->setUniform("tex",0);
+   std::array<char *,6> prefix={{
+     "PlusX","MinusX","PlusY","MinusY","PlusZ","MinusZ"
+   }};
+
+
+   for(size_t i=0; i<6; ++i )
+   {
+     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     glViewport(0,0,m_textureSize,m_textureSize);
+     shader->setUniform("face",static_cast<int>(i));
+     glGenerateMipmap(GL_TEXTURE_2D);
+     m_screenQuad->draw();
+     QString fname = QString("%1/%2-%3.png").arg(m_saveFilePath,prefix[i],m_saveFileName);
+     std::cout<<"saving "<<fname.toStdString()<<'\n';
+     glReadBuffer(GL_COLOR_ATTACHMENT0);
+     ngl::Image::saveFrameBufferToFile(fname.toStdString(), 0, 0, m_textureSize, m_textureSize, ngl::Image::ImageModes::RGB);
+
+   }
+
+   glBindFramebuffer(GL_FRAMEBUFFER, 0);
+   glDeleteFramebuffers(1,&fboID);
+   glDeleteTextures(1,&textureID);
+   glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+}
+
+
+
 
 void NGLScene::changeFace(int _index)
 {
@@ -173,6 +236,23 @@ void NGLScene::changeFace(int _index)
   shader->use("ScreenQuad");
   shader->setUniform("face",_index);
   update();
+}
+
+void NGLScene::changeTextureSize(int _size)
+{
+  switch(_size)
+  {
+    case 0 : m_textureSize=512; break;
+    case 1 : m_textureSize=1024; break;
+    case 2 : m_textureSize=2048; break;
+    case 3 : m_textureSize=4096; break;
+  }
+//  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+
+//  createFBO();
+//  createCubeMap();
+  update();
+
 }
 
 void NGLScene::captureCubeToTexture()
@@ -188,7 +268,7 @@ void NGLScene::captureCubeToTexture()
      ngl::lookAt(ngl::Vec3(0.0f, 0.0f, 0.0f), ngl::Vec3( 0.0f,  0.0f, -1.0f), ngl::Vec3(0.0f, -1.0f,  0.0f))
   }};
 
-  glViewport(0,0,512,512);
+  glViewport(0,0,m_textureSize,m_textureSize);
   glBindFramebuffer(GL_FRAMEBUFFER, m_captureFBO);
 //  glBindTexture(GL_TEXTURE_CUBE_MAP,m_envCubemap);
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
@@ -212,31 +292,53 @@ void NGLScene::captureCubeToTexture()
 
 void NGLScene::createFBO()
 {
+  if(m_captureFBO !=0)
+  {
+    glDeleteFramebuffers(1,&m_captureFBO);
+    glDeleteRenderbuffers(1,&m_captureRBO);
+  }
   glGenFramebuffers(1, &m_captureFBO);
   glGenRenderbuffers(1, &m_captureRBO);
 
   glBindFramebuffer(GL_FRAMEBUFFER, m_captureFBO);
   glBindRenderbuffer(GL_RENDERBUFFER, m_captureRBO);
-  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_textureSize, m_textureSize);
   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_captureRBO);
+
 }
 
 
 void NGLScene::createCubeMap()
 {
+  if(m_envCubemap !=0)
+  {
+    glDeleteTextures(1, &m_envCubemap);
+  }
   glGenTextures(1, &m_envCubemap);
   glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
   for (unsigned int i = 0; i < 6; ++i)
   {
     // note that we store each face with 16 bit floating point values
     glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F,
-                 512, 512, 0, GL_RGB, GL_FLOAT, nullptr);
+                 m_textureSize, m_textureSize, 0, GL_RGB, GL_FLOAT, nullptr);
 }
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+}
+
+
+void NGLScene::saveImages()
+{
+   m_saveFilePath = QFileDialog::getExistingDirectory(  0, tr("Save cubemaps"),QDir::currentPath() );
+  if(!m_saveFilePath.isNull())
+  {
+    m_saveFile=true;
+    // note we need to force a draw of each of the frames to capture them.
+    update();
+  }
 }
 
 
