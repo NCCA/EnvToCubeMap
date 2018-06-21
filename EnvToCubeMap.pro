@@ -11,6 +11,7 @@ isEqual(QT_MAJOR_VERSION, 5) {
 	cache()
   DEFINES +=QT5BUILD
 }
+  LIBS+=-L/usr/local/lib/ -lOpenImageIO
 
 # where to put moc auto generated files
 MOC_DIR=moc

@@ -11,8 +11,7 @@
 #include <QImage>
 #include <ngl/Texture.h>
 #include <algorithm>
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include <OpenImageIO/imageio.h>
 
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -35,7 +34,7 @@ void NGLScene::loadImage()
             tr("load texture"),
             QDir::currentPath(),
             tr("*.*") );
-  int width, height, nrComponents;
+  int width, height, channels;
 
   if( !filename.isNull() )
   {
@@ -43,19 +42,31 @@ void NGLScene::loadImage()
     {
       glDeleteTextures(1,&m_sourceEnvMapID);
     }
-    stbi_set_flip_vertically_on_load(true);
-    float *data = stbi_loadf(filename.toStdString().c_str(), &width, &height, &nrComponents, 0);
-    std::cout<<"loaded image "<<filename.toStdString()<<" width "<<width<<" height "<<height<<" components "<<nrComponents<<'\n';
+
+    OpenImageIO::ImageInput *in = OpenImageIO::ImageInput::open (filename.toStdString());
+    const OpenImageIO::ImageSpec &spec = in->spec();
+    width = spec.width;
+    height = spec.height;
+    channels = spec.nchannels;
+    GLenum format=GL_RGB;
+    if(channels==4) format=GL_RGBA;
+
+    std::unique_ptr<float[]> data=std::make_unique<float[]>(width*height*channels);
+    int scanlinesize = width * channels * sizeof(float);
+
+    in->read_image (OpenImageIO::TypeDesc::FLOAT,(char *)data.get() + (height-1)*scanlinesize, OpenImageIO::AutoStride, -scanlinesize, OpenImageIO::AutoStride);
+    in->close ();
+
     glGenTextures(1, & m_sourceEnvMapID );
     glBindTexture(GL_TEXTURE_2D, m_sourceEnvMapID);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, data);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, format, GL_FLOAT, data.get());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glGenerateMipmap(GL_TEXTURE_2D);
 
-    auto size=width*height*nrComponents;
+    auto size=width*height*channels;
     QByteArray imagedata(size,0);
     for (int i = 0; i<size; ++i)
     {
@@ -66,7 +77,6 @@ void NGLScene::loadImage()
     myTransform.rotate(180);
     image = image.transformed(myTransform);
     emit(imageUpdated(image));
-    stbi_image_free(data);
   }
 
   update();
@@ -81,11 +91,12 @@ void NGLScene::initializeGL()
   // enable depth testing for drawing
   glEnable(GL_DEPTH_TEST);
   /// create our camera
-  ngl::Vec3 eye(2,2,2);
-  ngl::Vec3 look(0,0,0);
-  ngl::Vec3 up(0,1,0);
+  ngl::Vec3 eye(2.0f,2.0f,2.0f);
+  ngl::Vec3 look(0.0f,0.0f,0.0f);
+  ngl::Vec3 up(0.0f,1.0f,0.0f);
 
-  m_view=ngl::lookAt(eye,look,up);
+  m_view[0]=ngl::lookAt(eye,look,up);
+  m_view[1]=ngl::lookAt({0.0f,0.0f,0.0f},{0.0f,0.0f,1.0f},{0.0f,1.0f,0.0f});
   m_projection=ngl::perspective(45,float(1024/720),0.1,300);
   // now to load the shader and set the values
   // grab an instance of shader manager
@@ -118,7 +129,7 @@ void NGLScene::loadMatricesToShader()
 {
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
   (*shader)["EnvMapProjection"]->use();
-  shader->setUniform("VP",m_projection*m_view*m_mouseGlobalTX);
+  shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -168,6 +179,7 @@ void NGLScene::paintGL()
 
 void NGLScene::saveImagesToFile()
 {
+  // we are going to render to a framebuffer and extract
    GLuint fboID,rboID;
    glGenFramebuffers(1, &fboID);
    glBindFramebuffer(GL_FRAMEBUFFER, fboID);
@@ -206,25 +218,24 @@ void NGLScene::saveImagesToFile()
      "PlusX","MinusX","PlusY","MinusY","PlusZ","MinusZ"
    }};
 
-
+   // loop for all the faces
    for(size_t i=0; i<6; ++i )
    {
+     // clear the screen and set viewport to texture size
      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
      glViewport(0,0,m_textureSize,m_textureSize);
      shader->setUniform("face",static_cast<int>(i));
-     glGenerateMipmap(GL_TEXTURE_2D);
      m_screenQuad->draw();
      QString fname = QString("%1/%2-%3.png").arg(m_saveFilePath,prefix[i],m_saveFileName);
      std::cout<<"saving "<<fname.toStdString()<<'\n';
      glReadBuffer(GL_COLOR_ATTACHMENT0);
      ngl::Image::saveFrameBufferToFile(fname.toStdString(), 0, 0, m_textureSize, m_textureSize, ngl::Image::ImageModes::RGB);
-
    }
 
-   glBindFramebuffer(GL_FRAMEBUFFER, 0);
+   glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+   // remove the FB and textures we created.
    glDeleteFramebuffers(1,&fboID);
    glDeleteTextures(1,&textureID);
-   glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
 }
 
 

@@ -47,6 +47,7 @@ public :
   void changeTextureSize(int _size);
   void saveImages();
   void storeFileName(const QString &_s){m_saveFileName=_s;}
+  void updateActiveCamera(int _cam){m_activeView=_cam;}
 private :
 	/// @brief m_wireframe mode
 	bool m_wireframe;
@@ -81,7 +82,8 @@ protected:
   /// @brief our model position
   ngl::Vec3 m_modelPos;
   /// @brief our camera
-  ngl::Mat4 m_view;
+  std::array<ngl::Mat4,2> m_view;
+  GLuint m_activeView=0;
   ngl::Mat4 m_projection;
   /// @brief our transform for objects
 	ngl::Transformation m_transform;
