@@ -19,6 +19,5 @@ void main ()
   else if(face==4) fragColour=texture(tex, vec3(mapCoord.xy, 1.0));
   else if(face==5) fragColour=texture(tex, vec3(mapCoord.xy, -1.0));
 
-  //fragColour.rgb=vec3(1.0, vertUV);
 }
 

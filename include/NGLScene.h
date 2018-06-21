@@ -49,6 +49,7 @@ public :
   void storeFileName(const QString &_s){m_saveFileName=_s;}
   void updateActiveCamera(int _cam){m_activeView=_cam;}
   void updateSaveType(int _s){m_saveType=_s;}
+  void toggleIrradiance(bool _i){m_showIrradiance=_i; update();}
 private :
 	/// @brief m_wireframe mode
 	bool m_wireframe;
@@ -58,9 +59,12 @@ private :
   GLuint m_sourceEnvMapID;
   std::array<GLuint,6> m_cubeFaceTextureID;
   GLuint m_envCubemap;
+  GLuint m_irradianceCubemap;
   bool m_showQuad=false;
-  GLuint m_textureSize=512;
+  GLuint m_textureSize=1024;
   int m_saveType=0;
+  bool m_showIrradiance=false;
+  bool m_mapsGenerated=true;
 protected:
   //----------------------------------------------------------------------------------------------------------------------
   /// @brief the windows params such as mouse and rotations etc
@@ -72,6 +76,8 @@ protected:
   void createFBO();
   void createCubeMap();
   void captureCubeToTexture();
+  void captureIrradianceToTexture();
+
   void saveImagesToFile();
   /// @brief this is called whenever the window is re-sized
   /// @param[in] _w the width of the resized window
@@ -114,6 +120,8 @@ private :
   GLuint m_captureFBO;
   GLuint m_captureRBO;
 
+  GLuint m_irradianceCaptureFBO;
+  GLuint m_irradianceCaptureRBO;
 
   signals :
   void imageUpdated(const QImage &image);

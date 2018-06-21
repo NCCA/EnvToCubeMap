@@ -13,6 +13,9 @@ MainWindow::MainWindow(QWidget *parent) :QMainWindow(parent), m_ui(new Ui::MainW
   connect(m_ui->m_textureSize,SIGNAL(currentIndexChanged(int)),m_gl,SLOT(changeTextureSize(int)));
   connect(m_ui->m_save,SIGNAL(clicked(bool)),m_gl,SLOT(saveImages()));
   connect(m_ui->m_saveFileBase,SIGNAL(textChanged(const QString &)),m_gl,SLOT(storeFileName(const QString &)));
+
+  connect(m_ui->m_showIrradiance,SIGNAL(toggled(bool)),m_gl,SLOT(toggleIrradiance(bool)));
+
   connect(m_ui->m_updateCamera ,static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
           [=](int _i)
           {

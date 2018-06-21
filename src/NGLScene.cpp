@@ -78,6 +78,7 @@ void NGLScene::loadImage()
     image = image.transformed(myTransform);
     emit(imageUpdated(image));
   }
+  m_mapsGenerated=true;
 
   update();
 }
@@ -97,19 +98,22 @@ void NGLScene::initializeGL()
 
   m_view[0]=ngl::lookAt(eye,look,up);
   m_view[1]=ngl::lookAt({0.0f,0.0f,0.0f},{0.0f,0.0f,1.0f},{0.0f,1.0f,0.0f});
-  m_projection=ngl::perspective(45,float(1024/720),0.1,300);
+  m_projection=ngl::perspective(45,float(1024/720),0.1f,30.0f);
   // now to load the shader and set the values
   // grab an instance of shader manager
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
   shader->loadShader("EnvMapProjection","shaders/EnvMapProjectVertex.glsl","shaders/EnvMapProjectFragment.glsl");
   shader->use("EnvMapProjection");
   shader->setUniform("equirectangularMap",0);
+  shader->setUniform("irradiance",1);
+
+  shader->loadShader("irradiance","shaders/EnvMapProjectVertex.glsl","shaders/irradianceFragment.glsl");
 
   shader->loadShader("ScreenQuad","shaders/TextureVertex.glsl","shaders/TextureFragment.glsl");
 
+  m_screenQuad.reset( new ScreenQuad("ScreenQuad"));
   createFBO();
   createCubeMap();
-  m_screenQuad.reset( new ScreenQuad("ScreenQuad"));
 
 
 }
@@ -128,7 +132,7 @@ void NGLScene::resizeGL( int _w, int _h )
 void NGLScene::loadMatricesToShader()
 {
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
-  (*shader)["EnvMapProjection"]->use();
+ // (*shader)["EnvMapProjection"]->use();
   shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
 }
 
@@ -138,8 +142,14 @@ void NGLScene::loadMatricesToShader()
 void NGLScene::paintGL()
 {
   auto *shader=ngl::ShaderLib::instance();
-  captureCubeToTexture();
 
+
+  if(!m_mapsGenerated)
+  {
+    captureCubeToTexture();
+    captureIrradianceToTexture();
+    m_mapsGenerated=true;
+  }
   if(!m_showQuad)
   {
     // Rotation based on the mouse position for our global transform
@@ -158,17 +168,39 @@ void NGLScene::paintGL()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glViewport(0,0,m_win.width,m_win.height);
     ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
-
+    shader->use("EnvMapProjection");
+    glActiveTexture(GL_TEXTURE0);
+//    if(m_showIrradiance == true)
+//      glBindTexture(GL_TEXTURE_CUBE_MAP, m_irradianceCubemap);
+//    else
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
+    glBindTexture(GL_TEXTURE_2D,m_sourceEnvMapID);
     loadMatricesToShader();
-    glBindTexture(GL_TEXTURE_2D, m_sourceEnvMapID);
+ //   if(m_showIrradiance == true)
+ //     shader->setUniform("mode",1);
+ //   else
+ //     shader->setUniform("mode",0);
     prim->draw("cube");
   }
   else
   {
+
+//    captureCubeToTexture();
+//    glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
+
+    static int once=0;
+    if (once ==0)
+    {
+
+        captureIrradianceToTexture();
+    once=1;
+  }
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_irradianceCubemap);
+
+
     glViewport(0,0,m_win.width,m_win.height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
-    shader->use("ScreenQuad");
+    //shader->use("ScreenQuad");
     m_screenQuad->draw();
   }
 
@@ -281,10 +313,10 @@ void NGLScene::changeTextureSize(int _size)
     case 2 : m_textureSize=2048; break;
     case 3 : m_textureSize=4096; break;
   }
-//  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
 
-//  createFBO();
-//  createCubeMap();
+  createFBO();
+  createCubeMap();
+  glBindFramebuffer(GL_FRAMEBUFFER,0);
   update();
 
 }
@@ -304,7 +336,6 @@ void NGLScene::captureCubeToTexture()
 
   glViewport(0,0,m_textureSize,m_textureSize);
   glBindFramebuffer(GL_FRAMEBUFFER, m_captureFBO);
-// glBindTexture(GL_TEXTURE_CUBE_MAP,m_envCubemap);
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
   ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
   (*shader)["EnvMapProjection"]->use();
@@ -324,6 +355,44 @@ void NGLScene::captureCubeToTexture()
 }
 
 
+void NGLScene::captureIrradianceToTexture()
+{
+  ngl::Mat4 captureProjection = ngl::perspective(90.0f, 1.0f, 0.1f, 10.0f);
+  std::array<ngl::Mat4,6>captureViews =
+  {{
+     ngl::lookAt(ngl::Vec3(0.0f, 0.0f, 0.0f), ngl::Vec3( 1.0f,  0.0f,  0.0f), ngl::Vec3(0.0f, -1.0f,  0.0f)),
+     ngl::lookAt(ngl::Vec3(0.0f, 0.0f, 0.0f), ngl::Vec3(-1.0f,  0.0f,  0.0f), ngl::Vec3(0.0f, -1.0f,  0.0f)),
+     ngl::lookAt(ngl::Vec3(0.0f, 0.0f, 0.0f), ngl::Vec3( 0.0f,  1.0f,  0.0f), ngl::Vec3(0.0f,  0.0f,  1.0f)),
+     ngl::lookAt(ngl::Vec3(0.0f, 0.0f, 0.0f), ngl::Vec3( 0.0f, -1.0f,  0.0f), ngl::Vec3(0.0f,  0.0f, -1.0f)),
+     ngl::lookAt(ngl::Vec3(0.0f, 0.0f, 0.0f), ngl::Vec3( 0.0f,  0.0f,  1.0f), ngl::Vec3(0.0f, -1.0f,  0.0f)),
+     ngl::lookAt(ngl::Vec3(0.0f, 0.0f, 0.0f), ngl::Vec3( 0.0f,  0.0f, -1.0f), ngl::Vec3(0.0f, -1.0f,  0.0f))
+  }};
+
+  glViewport(0,0,m_textureSize,m_textureSize);
+  glBindFramebuffer(GL_FRAMEBUFFER, m_irradianceCaptureFBO);
+  ngl::ShaderLib *shader=ngl::ShaderLib::instance();
+  (*shader)["irradiance"]->use();
+  shader->setUniform("cubeMap",0);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_CUBE_MAP,m_envCubemap);
+  ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
+
+  for( size_t i = 0; i < 6; ++i)
+  {
+    shader->setUniform("VP",captureProjection*captureViews[i]);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                             GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, m_irradianceCubemap, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    prim->draw("cube");
+  }
+  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+
+
+}
+
+
 void NGLScene::createFBO()
 {
   if(m_captureFBO !=0)
@@ -338,6 +407,22 @@ void NGLScene::createFBO()
   glBindRenderbuffer(GL_RENDERBUFFER, m_captureRBO);
   glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_textureSize, m_textureSize);
   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_captureRBO);
+
+
+  if(m_irradianceCaptureFBO !=0)
+  {
+    glDeleteFramebuffers(1,&m_irradianceCaptureFBO);
+    glDeleteRenderbuffers(1,&m_irradianceCaptureRBO);
+  }
+  glGenFramebuffers(1, &m_irradianceCaptureFBO);
+  glGenRenderbuffers(1, &m_irradianceCaptureRBO);
+
+  glBindFramebuffer(GL_FRAMEBUFFER, m_irradianceCaptureFBO);
+  glBindRenderbuffer(GL_RENDERBUFFER, m_irradianceCaptureRBO);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_textureSize, m_textureSize);
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_irradianceCaptureRBO);
+
+
 
 }
 
@@ -361,7 +446,30 @@ void NGLScene::createCubeMap()
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  if(m_irradianceCubemap !=0)
+  {
+    glDeleteTextures(1, &m_irradianceCubemap);
+  }
+  glGenTextures(1, &m_irradianceCubemap);
+  glBindTexture(GL_TEXTURE_CUBE_MAP, m_irradianceCubemap);
+  for (unsigned int i = 0; i < 6; ++i)
+  {
+    // note that we store each face with 16 bit floating point values
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F,
+                 m_textureSize, m_textureSize, 0, GL_RGB, GL_FLOAT, nullptr);
 }
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+}
+
+
+
+
 
 
 void NGLScene::saveImages()

@@ -13,5 +13,4 @@ void main()
   vertUV=inUV;
 // calculate the vertex position
   gl_Position = vec4(inVert,1.0);
-//vertUV=inUV;
 }
