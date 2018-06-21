@@ -138,34 +138,38 @@ void NGLScene::loadMatricesToShader()
 void NGLScene::paintGL()
 {
   auto *shader=ngl::ShaderLib::instance();
-
-  // Rotation based on the mouse position for our global transform
-  ngl::Mat4 rotX;
-  ngl::Mat4 rotY;
-  // create the rotation matrices
-  rotX.rotateX( m_win.spinXFace );
-  rotY.rotateY( m_win.spinYFace );
-  // multiply the rotations
-  m_mouseGlobalTX = rotX * rotY;
-  // add the translations
-  m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
-  m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
-  m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
   captureCubeToTexture();
 
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  glViewport(0,0,m_win.width,m_win.height);
-  ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
+  if(!m_showQuad)
+  {
+    // Rotation based on the mouse position for our global transform
+    ngl::Mat4 rotX;
+    ngl::Mat4 rotY;
+    // create the rotation matrices
+    rotX.rotateX( m_win.spinXFace );
+    rotY.rotateY( m_win.spinYFace );
+    // multiply the rotations
+    m_mouseGlobalTX = rotX * rotY;
+    // add the translations
+    m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
+    m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
+    m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
 
-	loadMatricesToShader();
-  glBindTexture(GL_TEXTURE_2D, m_sourceEnvMapID);
-  prim->draw("cube");
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glViewport(0,0,m_win.width,m_win.height);
+    ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
 
-  if(m_showQuad)
+    loadMatricesToShader();
+    glBindTexture(GL_TEXTURE_2D, m_sourceEnvMapID);
+    prim->draw("cube");
+  }
+  else
   {
     glViewport(0,0,m_win.width,m_win.height);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
     shader->use("ScreenQuad");
+    m_screenQuad->draw();
   }
 
   if(m_saveFile)
@@ -214,9 +218,11 @@ void NGLScene::saveImagesToFile()
 
    shader->use("ScreenQuad");
    shader->setUniform("tex",0);
-   std::array<char *,6> prefix={{
+   const std::array<const char *,6> prefix={{
      "PlusX","MinusX","PlusY","MinusY","PlusZ","MinusZ"
    }};
+
+   const std::array<const char *,5> extensions={{"png","tif","exr","hdr","jpg" }};
 
    // loop for all the faces
    for(size_t i=0; i<6; ++i )
@@ -226,10 +232,27 @@ void NGLScene::saveImagesToFile()
      glViewport(0,0,m_textureSize,m_textureSize);
      shader->setUniform("face",static_cast<int>(i));
      m_screenQuad->draw();
-     QString fname = QString("%1/%2-%3.png").arg(m_saveFilePath,prefix[i],m_saveFileName);
+     QString fname = QString("%1/%2-%3.%4").arg(m_saveFilePath,prefix[i],m_saveFileName,extensions[m_saveType]);
      std::cout<<"saving "<<fname.toStdString()<<'\n';
      glReadBuffer(GL_COLOR_ATTACHMENT0);
-     ngl::Image::saveFrameBufferToFile(fname.toStdString(), 0, 0, m_textureSize, m_textureSize, ngl::Image::ImageModes::RGB);
+
+     int size=3;
+     std::unique_ptr<unsigned char []> data( new unsigned char [m_textureSize * m_textureSize *size]);
+     glReadPixels(0,0,m_textureSize,m_textureSize,GL_RGB,GL_UNSIGNED_BYTE,data.get());
+     OpenImageIO::ImageOutput *out = OpenImageIO::ImageOutput::create (fname.toStdString().c_str());
+     OpenImageIO::ImageSpec spec (m_textureSize, m_textureSize, size, OpenImageIO::TypeDesc::UINT8);
+     int scanlinesize = m_textureSize * size;
+
+     out->open (fname.toStdString(), spec);
+     // note this flips the image vertically on writing
+     // (see http://www.openimageio.org/openimageio.pdf pg 20 for details)
+     out->write_image (OpenImageIO::TypeDesc::UINT8,
+                       data.get() + (m_textureSize-1)*scanlinesize,
+                       OpenImageIO::AutoStride,
+                       -scanlinesize,OpenImageIO::AutoStride);
+     out->close ();
+
+
    }
 
    glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
@@ -281,7 +304,7 @@ void NGLScene::captureCubeToTexture()
 
   glViewport(0,0,m_textureSize,m_textureSize);
   glBindFramebuffer(GL_FRAMEBUFFER, m_captureFBO);
-//  glBindTexture(GL_TEXTURE_CUBE_MAP,m_envCubemap);
+// glBindTexture(GL_TEXTURE_CUBE_MAP,m_envCubemap);
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
   ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
   (*shader)["EnvMapProjection"]->use();

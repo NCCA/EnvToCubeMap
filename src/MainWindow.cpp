@@ -21,6 +21,13 @@ MainWindow::MainWindow(QWidget *parent) :QMainWindow(parent), m_ui(new Ui::MainW
           }
       );
 
+  connect(m_ui->m_saveType ,static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+          [=](int _i)
+          {
+            m_gl->updateSaveType(_i);
+          }
+      );
+
 
   connect(m_ui->m_loadImage,SIGNAL(clicked(bool)),m_gl,SLOT(loadImage()));
   connect(m_gl,&NGLScene::imageUpdated,

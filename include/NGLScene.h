@@ -48,6 +48,7 @@ public :
   void saveImages();
   void storeFileName(const QString &_s){m_saveFileName=_s;}
   void updateActiveCamera(int _cam){m_activeView=_cam;}
+  void updateSaveType(int _s){m_saveType=_s;}
 private :
 	/// @brief m_wireframe mode
 	bool m_wireframe;
@@ -59,6 +60,7 @@ private :
   GLuint m_envCubemap;
   bool m_showQuad=false;
   GLuint m_textureSize=512;
+  int m_saveType=0;
 protected:
   //----------------------------------------------------------------------------------------------------------------------
   /// @brief the windows params such as mouse and rotations etc
