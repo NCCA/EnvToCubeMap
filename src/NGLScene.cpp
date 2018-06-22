@@ -135,9 +135,7 @@ void NGLScene::paintGL()
   auto *shader=ngl::ShaderLib::instance();
   ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
 
-  if(m_viewMode==0)
-  {
-    // Rotation based on the mouse position for our global transform
+  // Rotation based on the mouse position for our global transform
     ngl::Mat4 rotX;
     ngl::Mat4 rotY;
     // create the rotation matrices
@@ -145,10 +143,16 @@ void NGLScene::paintGL()
     rotY.rotateY( m_win.spinYFace );
     // multiply the rotations
     m_mouseGlobalTX = rotX * rotY;
-    // add the translations
-    m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
-    m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
-    m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
+    if(m_activeView ==0)
+    {
+      // add the translations
+      m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
+      m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
+      m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
+    }
+
+  if(m_viewMode==0)
+  {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glViewport(0,0,m_win.width,m_win.height);
     shader->use("EnvMapProjection");
@@ -158,42 +162,29 @@ void NGLScene::paintGL()
     shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
     prim->draw("cube");
   }
-  else if(m_viewMode==1)
+  else if(m_viewMode==1) // normal map
   {
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
-
     glViewport(0,0,m_win.width,m_win.height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     m_screenQuad->draw();
   }
-  else if(m_viewMode==2)
+  else if(m_viewMode==2) // irradiance maps
   {
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_irradianceCubemap);
-
     glViewport(0,0,m_win.width,m_win.height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     m_screenQuad->draw();
   }
 
-  else if(m_viewMode ==3)
+  else if(m_viewMode ==3) // irradiance cube
   {
-    // Rotation based on the mouse position for our global transform
-    ngl::Mat4 rotX;
-    ngl::Mat4 rotY;
-    // create the rotation matrices
-    rotX.rotateX( m_win.spinXFace );
-    rotY.rotateY( m_win.spinYFace );
-    // multiply the rotations
-    m_mouseGlobalTX = rotX * rotY;
-    // add the translations
-    m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
-    m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
-    m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
+
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glViewport(0,0,m_win.width,m_win.height);
     shader->use("EnvMapProjection");
     shader->setUniform("mode",1);
-    glActiveTexture(GL_TEXTURE0);
+    glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_CUBE_MAP,m_irradianceCubemap);
     shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
     prim->draw("cube");
@@ -391,9 +382,6 @@ void NGLScene::captureCubeToTexture()
     prim->draw("cube");
   }
   m_envFramebuffer->unbind();
-//  glBindFramebuffer(GL_FRAMEBUFFER,defaultFramebufferObject());
-//  std::cout<<"DEFAULT FBO "<<defaultFramebufferObject()<<'\n';
-
 }
 
 
@@ -411,7 +399,6 @@ void NGLScene::captureIrradianceToTexture()
   }};
 
   glViewport(0,0,m_textureSize,m_textureSize);
-  //glBindFramebuffer(GL_FRAMEBUFFER, m_irradianceCaptureFBO);
   m_irradianceFramebuffer->bind();
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
   (*shader)["irradiance"]->use();
@@ -423,11 +410,8 @@ void NGLScene::captureIrradianceToTexture()
   for( size_t i = 0; i < 6; ++i)
   {
     shader->setUniform("VP",captureProjection*captureViews[i]);
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                             GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, m_irradianceCubemap, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, m_irradianceCubemap, 0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
     prim->draw("cube");
   }
   m_irradianceFramebuffer->unbind();
@@ -446,8 +430,7 @@ void NGLScene::createCubeMap()
   for (unsigned int i = 0; i < 6; ++i)
   {
     // note that we store each face with 16 bit floating point values
-    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F,
-                 m_textureSize, m_textureSize, 0, GL_RGB, GL_FLOAT, nullptr);
+    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F,m_textureSize, m_textureSize, 0, GL_RGB, GL_FLOAT, nullptr);
 }
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
