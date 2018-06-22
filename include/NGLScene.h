@@ -38,10 +38,6 @@ public :
 		/// @brief dtor
 	~NGLScene();
  public slots :
-	/// @brief a slot to toggle wireframe mode
-	/// @param[in] _mode the mode passed from the toggle
-	/// button
-	void toggleWireframe( bool _mode	 );
 
   void loadImage();
   void changeFace(int _index);
@@ -50,10 +46,9 @@ public :
   void storeFileName(const QString &_s){m_saveFileName=_s;}
   void updateActiveCamera(int _cam){m_activeView=_cam;}
   void updateSaveType(int _s){m_saveType=_s;}
-  void toggleIrradiance(bool _i){m_showIrradiance=_i; update();}
+  void updateViewMode(int _mode){m_viewMode=_mode;}
 private :
 	/// @brief m_wireframe mode
-	bool m_wireframe;
   bool m_saveFile=false;
   QString m_saveFileName;
   QString m_saveFilePath;
@@ -64,9 +59,10 @@ private :
   GLuint m_envCubemap;
   GLuint m_irradianceCubemap;
   bool m_showQuad=false;
-  GLuint m_textureSize=1024;
+  GLuint m_textureSize=512;
   int m_saveType=0;
   bool m_showIrradiance=false;
+  int m_viewMode=0;
 protected:
   //----------------------------------------------------------------------------------------------------------------------
   /// @brief the windows params such as mouse and rotations etc

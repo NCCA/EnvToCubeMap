@@ -8,18 +8,24 @@ MainWindow::MainWindow(QWidget *parent) :QMainWindow(parent), m_ui(new Ui::MainW
   m_gl=new  NGLScene(this);
 
   m_ui->s_mainWindowGridLayout->addWidget(m_gl,0,0,4,2);
-  connect(m_ui->m_wireframe,SIGNAL(toggled(bool)),m_gl,SLOT(toggleWireframe(bool)));
   connect(m_ui->m_selectFace,SIGNAL(currentIndexChanged(int)),m_gl,SLOT(changeFace(int)));
   connect(m_ui->m_textureSize,SIGNAL(currentIndexChanged(int)),m_gl,SLOT(changeTextureSize(int)));
   connect(m_ui->m_save,SIGNAL(clicked(bool)),m_gl,SLOT(saveImages()));
   connect(m_ui->m_saveFileBase,SIGNAL(textChanged(const QString &)),m_gl,SLOT(storeFileName(const QString &)));
 
-  connect(m_ui->m_showIrradiance,SIGNAL(toggled(bool)),m_gl,SLOT(toggleIrradiance(bool)));
 
   connect(m_ui->m_updateCamera ,static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
           [=](int _i)
           {
             m_gl->updateActiveCamera(_i);
+            m_gl->update();
+          }
+      );
+
+  connect(m_ui->m_viewMode ,static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+          [=](int _i)
+          {
+            m_gl->updateViewMode(_i);
             m_gl->update();
           }
       );

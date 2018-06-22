@@ -22,7 +22,6 @@ NGLScene::NGLScene( QWidget *_parent ) : QOpenGLWidget( _parent )
   setFocus();
   // re-size the widget to that of the parent (in this case the GLFrame passed in on construction)
   this->resize(_parent->size());
-	m_wireframe=false;
 }
 
 
@@ -134,9 +133,9 @@ void NGLScene::resizeGL( int _w, int _h )
 void NGLScene::paintGL()
 {
   auto *shader=ngl::ShaderLib::instance();
+  ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
 
-
-  if(!m_showQuad)
+  if(m_viewMode==0)
   {
     // Rotation based on the mouse position for our global transform
     ngl::Mat4 rotX;
@@ -152,25 +151,52 @@ void NGLScene::paintGL()
     m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glViewport(0,0,m_win.width,m_win.height);
-    ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
     shader->use("EnvMapProjection");
+    shader->setUniform("mode",0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D,m_sourceEnvMapID);
     shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
     prim->draw("cube");
   }
-  else
+  else if(m_viewMode==1)
   {
-    //m_envFramebuffer->bind();
-//    glBindFramebuffer(GL_FRAMEBUFFER,defaultFramebufferObject());
-  //  captureCubeToTexture();
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
 
     glViewport(0,0,m_win.width,m_win.height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    //shader->use("ScreenQuad");
     m_screenQuad->draw();
-    //m_envFramebuffer->unbind();
+  }
+  else if(m_viewMode==2)
+  {
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_irradianceCubemap);
+
+    glViewport(0,0,m_win.width,m_win.height);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    m_screenQuad->draw();
+  }
+
+  else if(m_viewMode ==3)
+  {
+    // Rotation based on the mouse position for our global transform
+    ngl::Mat4 rotX;
+    ngl::Mat4 rotY;
+    // create the rotation matrices
+    rotX.rotateX( m_win.spinXFace );
+    rotY.rotateY( m_win.spinYFace );
+    // multiply the rotations
+    m_mouseGlobalTX = rotX * rotY;
+    // add the translations
+    m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
+    m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
+    m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glViewport(0,0,m_win.width,m_win.height);
+    shader->use("EnvMapProjection");
+    shader->setUniform("mode",1);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP,m_irradianceCubemap);
+    shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
+    prim->draw("cube");
 
   }
 
@@ -226,7 +252,8 @@ void NGLScene::saveImagesToFile()
 
    const std::array<const char *,5> extensions={{"png","tif","exr","hdr","jpg" }};
 
-   // loop for all the faces
+   // loop for all the faces an export textures
+   glBindTexture(GL_TEXTURE_CUBE_MAP,m_envCubemap );
    for(size_t i=0; i<6; ++i )
    {
      // clear the screen and set viewport to texture size
@@ -256,6 +283,43 @@ void NGLScene::saveImagesToFile()
 
 
    }
+
+
+   // Now the irradiance ones
+   // loop for all the faces an export textures
+   glBindTexture(GL_TEXTURE_CUBE_MAP,m_irradianceCubemap );
+   for(size_t i=0; i<6; ++i )
+   {
+     // clear the screen and set viewport to texture size
+     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     glViewport(0,0,m_textureSize,m_textureSize);
+     shader->setUniform("face",static_cast<int>(i));
+     m_screenQuad->draw();
+     QString fname = QString("%1/%2-Irradiance%3.%4").arg(m_saveFilePath,prefix[i],m_saveFileName,extensions[m_saveType]);
+     std::cout<<"saving "<<fname.toStdString()<<'\n';
+     glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+     int size=3;
+     std::unique_ptr<unsigned char []> data( new unsigned char [m_textureSize * m_textureSize *size]);
+     glReadPixels(0,0,m_textureSize,m_textureSize,GL_RGB,GL_UNSIGNED_BYTE,data.get());
+     OpenImageIO::ImageOutput *out = OpenImageIO::ImageOutput::create (fname.toStdString().c_str());
+     OpenImageIO::ImageSpec spec (m_textureSize, m_textureSize, size, OpenImageIO::TypeDesc::UINT8);
+     int scanlinesize = m_textureSize * size;
+
+     out->open (fname.toStdString(), spec);
+     // note this flips the image vertically on writing
+     // (see http://www.openimageio.org/openimageio.pdf pg 20 for details)
+     out->write_image (OpenImageIO::TypeDesc::UINT8,
+                       data.get() + (m_textureSize-1)*scanlinesize,
+                       OpenImageIO::AutoStride,
+                       -scanlinesize,OpenImageIO::AutoStride);
+     out->close ();
+
+
+   }
+
+
+
 
    glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
    // remove the FB and textures we created.
@@ -427,11 +491,5 @@ void NGLScene::saveImages()
 
 NGLScene::~NGLScene()
 {
-}
-
-void NGLScene::toggleWireframe(bool _mode	 )
-{
-  m_showQuad=_mode;
-	update();
 }
 

@@ -14,7 +14,7 @@ vec3 calculateIrradiance(vec3 normal)
   vec3 right = cross(up, normal);
   up         = cross(normal, right);
 
-  float sampleDelta =0.02; //0.025;
+  float sampleDelta =0.025;
   float nrSamples = 0.0;
   for(float phi = 0.0; phi < 2.0 * PI; phi += sampleDelta)
   {
@@ -33,6 +33,6 @@ vec3 calculateIrradiance(vec3 normal)
 }
 void main()
 {
-  fragColor.rgb=vec3(1,0,0);//calculateIrradiance(normalize(localPos));
+  fragColor.rgb=calculateIrradiance(normalize(localPos));
 }
 
