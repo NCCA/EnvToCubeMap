@@ -6,6 +6,7 @@
 #include <ngl/Text.h>
 #include "WindowParams.h"
 #include "ScreenQuad.h"
+#include "Framebuffer.h"
 #include <QEvent>
 #include <QResizeEvent>
 #include <QOpenGLWidget>
@@ -57,14 +58,15 @@ private :
   QString m_saveFileName;
   QString m_saveFilePath;
   GLuint m_sourceEnvMapID;
-  std::array<GLuint,6> m_cubeFaceTextureID;
+  std::unique_ptr<Framebuffer> m_envFramebuffer;
+  std::unique_ptr<Framebuffer> m_irradianceFramebuffer;
+
   GLuint m_envCubemap;
   GLuint m_irradianceCubemap;
   bool m_showQuad=false;
   GLuint m_textureSize=1024;
   int m_saveType=0;
   bool m_showIrradiance=false;
-  bool m_mapsGenerated=true;
 protected:
   //----------------------------------------------------------------------------------------------------------------------
   /// @brief the windows params such as mouse and rotations etc
@@ -73,7 +75,7 @@ protected:
   /// @brief  The following methods must be implimented in the sub class
   /// this is called when the window is created
   void initializeGL();
-  void createFBO();
+  //void createFBO();
   void createCubeMap();
   void captureCubeToTexture();
   void captureIrradianceToTexture();
@@ -113,15 +115,10 @@ private :
   void mouseReleaseEvent (QMouseEvent *_event );
   void wheelEvent( QWheelEvent* _event );
 
-  void loadMatricesToShader();
 
   ngl::Mat4 m_mouseGlobalTX;
 
-  GLuint m_captureFBO;
-  GLuint m_captureRBO;
 
-  GLuint m_irradianceCaptureFBO;
-  GLuint m_irradianceCaptureRBO;
 
   signals :
   void imageUpdated(const QImage &image);

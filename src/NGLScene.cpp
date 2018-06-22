@@ -29,12 +29,8 @@ NGLScene::NGLScene( QWidget *_parent ) : QOpenGLWidget( _parent )
 void NGLScene::loadImage()
 {
   std::cout<<"load\n";
-  QString filename = QFileDialog::getOpenFileName(
-            nullptr,
-            tr("load texture"),
-            QDir::currentPath(),
-            tr("*.*") );
-  int width, height, channels;
+  QString filename = QFileDialog::getOpenFileName( nullptr, tr("load texture"),QDir::currentPath(),tr("*.*") );
+  size_t width, height, channels;
 
   if( !filename.isNull() )
   {
@@ -45,14 +41,14 @@ void NGLScene::loadImage()
 
     OpenImageIO::ImageInput *in = OpenImageIO::ImageInput::open (filename.toStdString());
     const OpenImageIO::ImageSpec &spec = in->spec();
-    width = spec.width;
-    height = spec.height;
-    channels = spec.nchannels;
+    width = static_cast<size_t>(spec.width);
+    height = static_cast<size_t>(spec.height);
+    channels = static_cast<size_t>(spec.nchannels);
     GLenum format=GL_RGB;
     if(channels==4) format=GL_RGBA;
 
     std::unique_ptr<float[]> data=std::make_unique<float[]>(width*height*channels);
-    int scanlinesize = width * channels * sizeof(float);
+    size_t scanlinesize = width * channels * sizeof(float);
 
     in->read_image (OpenImageIO::TypeDesc::FLOAT,(char *)data.get() + (height-1)*scanlinesize, OpenImageIO::AutoStride, -scanlinesize, OpenImageIO::AutoStride);
     in->close ();
@@ -78,9 +74,10 @@ void NGLScene::loadImage()
     image = image.transformed(myTransform);
     emit(imageUpdated(image));
   }
-  m_mapsGenerated=true;
-
-  update();
+  //m_mapsGenerated=false;
+  captureCubeToTexture();
+  captureIrradianceToTexture();
+ // update();
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -112,9 +109,10 @@ void NGLScene::initializeGL()
   shader->loadShader("ScreenQuad","shaders/TextureVertex.glsl","shaders/TextureFragment.glsl");
 
   m_screenQuad.reset( new ScreenQuad("ScreenQuad"));
-  createFBO();
-  createCubeMap();
 
+  m_envFramebuffer=std::make_unique<Framebuffer>(m_textureSize,m_textureSize);
+  m_irradianceFramebuffer=std::make_unique<Framebuffer>(m_textureSize,m_textureSize);
+  createCubeMap();
 
 }
 
@@ -129,12 +127,6 @@ void NGLScene::resizeGL( int _w, int _h )
 }
 
 
-void NGLScene::loadMatricesToShader()
-{
-  ngl::ShaderLib *shader=ngl::ShaderLib::instance();
- // (*shader)["EnvMapProjection"]->use();
-  shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
-}
 
 //----------------------------------------------------------------------------------------------------------------------
 //This virtual function is called whenever the widget needs to be painted.
@@ -144,12 +136,6 @@ void NGLScene::paintGL()
   auto *shader=ngl::ShaderLib::instance();
 
 
-  if(!m_mapsGenerated)
-  {
-    captureCubeToTexture();
-    captureIrradianceToTexture();
-    m_mapsGenerated=true;
-  }
   if(!m_showQuad)
   {
     // Rotation based on the mouse position for our global transform
@@ -164,44 +150,28 @@ void NGLScene::paintGL()
     m_mouseGlobalTX.m_m[3][0] = m_modelPos.m_x;
     m_mouseGlobalTX.m_m[3][1] = m_modelPos.m_y;
     m_mouseGlobalTX.m_m[3][2] = m_modelPos.m_z;
-
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glViewport(0,0,m_win.width,m_win.height);
     ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
     shader->use("EnvMapProjection");
     glActiveTexture(GL_TEXTURE0);
-//    if(m_showIrradiance == true)
-//      glBindTexture(GL_TEXTURE_CUBE_MAP, m_irradianceCubemap);
-//    else
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
     glBindTexture(GL_TEXTURE_2D,m_sourceEnvMapID);
-    loadMatricesToShader();
- //   if(m_showIrradiance == true)
- //     shader->setUniform("mode",1);
- //   else
- //     shader->setUniform("mode",0);
+    shader->setUniform("VP",m_projection*m_view[m_activeView]*m_mouseGlobalTX);
     prim->draw("cube");
   }
   else
   {
-
-//    captureCubeToTexture();
-//    glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
-
-    static int once=0;
-    if (once ==0)
-    {
-
-        captureIrradianceToTexture();
-    once=1;
-  }
-    glBindTexture(GL_TEXTURE_CUBE_MAP, m_irradianceCubemap);
-
+    //m_envFramebuffer->bind();
+//    glBindFramebuffer(GL_FRAMEBUFFER,defaultFramebufferObject());
+  //  captureCubeToTexture();
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_envCubemap);
 
     glViewport(0,0,m_win.width,m_win.height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     //shader->use("ScreenQuad");
     m_screenQuad->draw();
+    //m_envFramebuffer->unbind();
+
   }
 
   if(m_saveFile)
@@ -314,15 +284,19 @@ void NGLScene::changeTextureSize(int _size)
     case 3 : m_textureSize=4096; break;
   }
 
-  createFBO();
+  //createFBO();
+  m_envFramebuffer=std::make_unique<Framebuffer>(m_textureSize,m_textureSize,defaultFramebufferObject());
+  m_irradianceFramebuffer=std::make_unique<Framebuffer>(m_textureSize,m_textureSize,defaultFramebufferObject());
+
   createCubeMap();
-  glBindFramebuffer(GL_FRAMEBUFFER,0);
+//  glBindFramebuffer(GL_FRAMEBUFFER,0);
   update();
 
 }
 
 void NGLScene::captureCubeToTexture()
 {
+  std::cout<<"DOING CAPTURE\n";
   ngl::Mat4 captureProjection = ngl::perspective(90.0f, 1.0f, 0.1f, 10.0f);
   std::array<ngl::Mat4,6>captureViews =
   {{
@@ -335,7 +309,8 @@ void NGLScene::captureCubeToTexture()
   }};
 
   glViewport(0,0,m_textureSize,m_textureSize);
-  glBindFramebuffer(GL_FRAMEBUFFER, m_captureFBO);
+  //glBindFramebuffer(GL_FRAMEBUFFER, m_captureFBO);
+  m_envFramebuffer->bind();
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
   ngl::VAOPrimitives *prim=ngl::VAOPrimitives::instance();
   (*shader)["EnvMapProjection"]->use();
@@ -345,12 +320,15 @@ void NGLScene::captureCubeToTexture()
     shader->setUniform("VP",captureProjection*captureViews[i]);
 
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                             GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, m_envCubemap, 0);
+                             GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                            m_envCubemap, 0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     prim->draw("cube");
   }
-  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
+  m_envFramebuffer->unbind();
+//  glBindFramebuffer(GL_FRAMEBUFFER,defaultFramebufferObject());
+//  std::cout<<"DEFAULT FBO "<<defaultFramebufferObject()<<'\n';
 
 }
 
@@ -369,7 +347,8 @@ void NGLScene::captureIrradianceToTexture()
   }};
 
   glViewport(0,0,m_textureSize,m_textureSize);
-  glBindFramebuffer(GL_FRAMEBUFFER, m_irradianceCaptureFBO);
+  //glBindFramebuffer(GL_FRAMEBUFFER, m_irradianceCaptureFBO);
+  m_irradianceFramebuffer->bind();
   ngl::ShaderLib *shader=ngl::ShaderLib::instance();
   (*shader)["irradiance"]->use();
   shader->setUniform("cubeMap",0);
@@ -387,45 +366,10 @@ void NGLScene::captureIrradianceToTexture()
 
     prim->draw("cube");
   }
-  glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
-
-
-}
-
-/*
-void NGLScene::createFBO()
-{
-  if(m_captureFBO !=0)
-  {
-    glDeleteFramebuffers(1,&m_captureFBO);
-    glDeleteRenderbuffers(1,&m_captureRBO);
-  }
-  glGenFramebuffers(1, &m_captureFBO);
-  glGenRenderbuffers(1, &m_captureRBO);
-
-  glBindFramebuffer(GL_FRAMEBUFFER, m_captureFBO);
-  glBindRenderbuffer(GL_RENDERBUFFER, m_captureRBO);
-  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_textureSize, m_textureSize);
-  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_captureRBO);
-
-
-  if(m_irradianceCaptureFBO !=0)
-  {
-    glDeleteFramebuffers(1,&m_irradianceCaptureFBO);
-    glDeleteRenderbuffers(1,&m_irradianceCaptureRBO);
-  }
-  glGenFramebuffers(1, &m_irradianceCaptureFBO);
-  glGenRenderbuffers(1, &m_irradianceCaptureRBO);
-
-  glBindFramebuffer(GL_FRAMEBUFFER, m_irradianceCaptureFBO);
-  glBindRenderbuffer(GL_RENDERBUFFER, m_irradianceCaptureRBO);
-  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_textureSize, m_textureSize);
-  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_irradianceCaptureRBO);
-
-
+  m_irradianceFramebuffer->unbind();
 
 }
-*/
+
 
 void NGLScene::createCubeMap()
 {
@@ -469,9 +413,6 @@ void NGLScene::createCubeMap()
 
 
 
-
-
-
 void NGLScene::saveImages()
 {
    m_saveFilePath = QFileDialog::getExistingDirectory(  0, tr("Save cubemaps"),QDir::currentPath() );
@@ -490,7 +431,6 @@ NGLScene::~NGLScene()
 
 void NGLScene::toggleWireframe(bool _mode	 )
 {
-  //m_wireframe=_mode;
   m_showQuad=_mode;
 	update();
 }

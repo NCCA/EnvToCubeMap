@@ -33,6 +33,6 @@ vec3 calculateIrradiance(vec3 normal)
 }
 void main()
 {
-  fragColor.rgb=calculateIrradiance(normalize(localPos));
+  fragColor.rgb=vec3(1,0,0);//calculateIrradiance(normalize(localPos));
 }
 
