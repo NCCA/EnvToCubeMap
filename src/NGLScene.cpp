@@ -392,7 +392,7 @@ void NGLScene::captureIrradianceToTexture()
 
 }
 
-
+/*
 void NGLScene::createFBO()
 {
   if(m_captureFBO !=0)
@@ -425,7 +425,7 @@ void NGLScene::createFBO()
 
 
 }
-
+*/
 
 void NGLScene::createCubeMap()
 {

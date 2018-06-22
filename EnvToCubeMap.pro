@@ -22,11 +22,13 @@ SOURCES+= $$PWD/src/NGLScene.cpp \
           $$PWD/src/NGLSceneMouseControls.cpp \
 					$$PWD/src/MainWindow.cpp \
           $$PWD/src/ScreenQuad.cpp \
+          $$PWD/src/Framebuffer.cpp \
 					$$PWD/src/main.cpp
 # same for the .h files
 HEADERS+= $$PWD/include/NGLScene.h \
           $$PWD/include/MainWindow.h \
           $$PWD/include/ScreenQuad.h \
+          $$PWD/include/Framebuffer.h \
           $$PWD/include/WindowParams.h
 
 
